@@ -2,12 +2,13 @@
 const models = require('../models');
 
 // get the Cat model
-const { Cat } = models;
+const { Cat, Dog } = models;
 
 // Function to handle rendering the index page.
 const hostIndex = async (req, res) => {
   //Start with the name as unknown
   let name = 'unknown';
+  let dogName = 'unknown';
 
   try{
     /* Cat.findOne() will find a cat that matches the query given to it as the first parameter.
@@ -32,11 +33,24 @@ const hostIndex = async (req, res) => {
     console.log(err);
   }
 
+  try{
+    const doc = await Dog.findOne({}, {}, { 
+      sort: {'createdDate': 'descending'}
+    }).lean().exec();
+
+    if(doc) {
+      dogName = doc.name;
+    }
+  } catch (err) {
+    console.log(err);
+  }
+
   /* res.render will render the given view from the views folder. In this case, index.
      We pass it a number of variables to populate the page.
   */
   res.render('index', {
     currentName: name,
+    currentDogName: dogName,
     title: 'Home',
     pageName: 'Home Page',
   });
@@ -100,6 +114,18 @@ const hostPage3 = (req, res) => {
   res.render('page3');
 };
 
+//Works like Page1. Renders on top of the existing template for the page. 
+//Get's the whole list of Dog objects and sends it to page4 while rendering.
+const hostPage4 = async (req, res) => {
+  try {
+    const docs = await Dog.find({}).lean().exec();
+    return res.render('page4', { dogs: docs });
+  } catch (err) {
+    console.log(err);
+    return res.status(500).json({ error: 'failed to find dogs' });
+  }
+};
+
 // Get name will return the name of the last added cat.
 const getName = async (req, res) => {
   try{
@@ -121,6 +147,24 @@ const getName = async (req, res) => {
     /* If an error occurs, it means something went wrong with the database. We will
        give the user a 500 internal server error status code and an error message.
     */
+    console.log(err);
+    return res.status(500).json({error: 'Something went wrong contacting the database'});
+  }
+}
+
+//Made this early on. Misread the second part of 5 as a function to 
+//that JUST looks up and returns a dogs name. Gets the name of the 
+//last added dog. Realized I didn't need it, but with all the code 
+//that's repurposable here I decided to just leave it and throw in 
+//another link. One more feature I guess.
+const getDogName = async (req, res) => {
+  try{
+    const doc = await Dog.findOne({}).sort({'createdDate': 'descending'}).lean().exec();
+    if(doc) {
+      return res.json({name: doc.name});
+    }
+    return res.status(404).json({error: 'No dog found'});
+  } catch (err) {
     console.log(err);
     return res.status(500).json({error: 'Something went wrong contacting the database'});
   }
@@ -182,6 +226,32 @@ const setName = async (req, res) => {
     */
     console.log(err);
     return res.status(500).json({ error: 'failed to create cat' });
+  }
+};
+
+//Works pretty much the same as setName but just for Dog objects. Technically 
+//the objects are identical in structure, but entering new vars needed to be 
+//put in place.
+const setDogName = async (req, res) => {
+  if (!req.body.name || !req.body.breed || !req.body.age) {
+    return res.status(400).json({ error: 'name, breed and age are all required' });
+  }
+  const dogData = {
+    name: req.body.name,
+    breed: req.body.breed,
+    age: req.body.age,
+  };
+  const newDog = new Dog(dogData);
+  try {
+    await newDog.save();
+    return res.status(201).json({
+      name: newDog.name,
+      breed: newDog.breed,
+      age: newDog.age,
+    });
+  } catch (err) {
+    console.log(err);
+    return res.status(500).json({ error: 'failed to create dog' });
   }
 };
 
@@ -276,6 +346,36 @@ const updateLast = (req, res) => {
   });
 };
 
+//A combo of searchName and updateLast. Just searches for the dog object, 
+// then sends it off to the update logic in the second half.
+const updateDogSearched = async (req, res) => {
+  if (!req.query.name) {
+    return res.status(400).json({ error: 'Name is required to perform a search' });
+  }
+  let dog;
+  try {
+    dog = await Dog.findOne({ name: req.query.name }).exec();
+  } catch (err) {
+    console.log(err);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+  if (!dog) {
+    return res.status(404).json({ error: 'No dogs found' });
+  }
+  
+  const updatePromise = Dog.updateOne({ name: dog.name }, {$inc: {'age': 1}}).lean().exec();
+
+  updatePromise.then(() => res.json({
+    name: dog.name,
+    age: dog.age + 1,
+  }));
+
+  updatePromise.catch((err) => {
+    console.log(err);
+    return res.status(500).json({ error: 'Something went wrong' });
+  });
+};
+
 // A function to send back the 404 page.
 const notFound = (req, res) => {
   res.status(404).render('notFound', {
@@ -284,6 +384,7 @@ const notFound = (req, res) => {
 };
 
 // export the relevant public controller functions
+//Added mine.
 module.exports = {
   index: hostIndex,
   page1: hostPage1,
@@ -294,4 +395,8 @@ module.exports = {
   updateLast,
   searchName,
   notFound,
+  getDogName,
+  setDogName,
+  updateDogSearched,
+  page4: hostPage4
 };
